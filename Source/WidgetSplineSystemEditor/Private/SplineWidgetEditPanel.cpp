@@ -32,6 +32,14 @@ void SSplineWidgetEditPanel::Construct(const FArguments& InArgs)
 	}));
 }
 
+void SSplineWidgetEditPanel::ResetForSplineSelection()
+{
+	DragState = EDragState::None;
+	SelectedPointIndex = 0;
+	ZoomToFit(true, true);
+	Invalidate(EInvalidateWidgetReason::Paint);
+}
+
 int32 SSplineWidgetEditPanel::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId,
 	const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -44,7 +52,7 @@ int32 SSplineWidgetEditPanel::OnPaint(const FPaintArgs& Args, const FGeometry& A
 
 	if (SplineRef.Points.Num() > 1)
 	{
-		if (SplineRef.Brush.GetResourceObject()->IsValidLowLevel())
+		if (IsValid(SplineRef.Brush.GetResourceObject()))
 		{
 			PaintSplineBrush(PaintContext);
 		}

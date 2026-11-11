@@ -2,18 +2,27 @@
 
 #include "Slate/SplineBuilder.h"
 
-FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext)
+FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale)
+	: FSplineBuilder(InSize, PaintContext, SplineScale, SplineScale)
+{
+}
+
+FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale, double StrokeScale)
 	: RenderTransform(PaintContext.GetRenderTransform())
 	, SingleColor(PaintContext.TintColor)
 	, TextureCoord2(InSize.X, 1.0f)
-	, CoordScaleV(InSize.Y * 0.01f)
+	, CoordScaleV(SplineScale > 0.0 ? InSize.Y * 0.01 / SplineScale : 0.0)
 {
-	const float LineThickness = 2 * UE_SQRT_2 + TextureCoord2.X;
-	HalfLineThickness = LineThickness / 2 + TextureCoord2.Y;
+	HalfLineThickness = GetStrokeRadius(TextureCoord2.X) * StrokeScale;
 }
 
 void FSplineBuilder::BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateSplinePoint SegmentEnd, const bool bIsLinear)
 {
+	if (NumPointsAdded == 0)
+	{
+		AppendPoint(SegmentStart.Location);
+	}
+
 	if (bIsLinear)
 	{
 		SegmentStart.Direction = FVector2D::ZeroVector;
@@ -30,7 +39,11 @@ void FSplineBuilder::BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateS
 
 void FSplineBuilder::Finish(const bool bCloseLoop)
 {
-	if (NumPointsAdded < 3)
+	if (NumPointsAdded < 2)
+	{
+		return;
+	}
+	if (NumPointsAdded == 2)
 	{
 		// Line builder needs at least two line segments (3 points) to
 		// complete building its geometry.

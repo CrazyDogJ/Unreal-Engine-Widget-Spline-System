@@ -10,7 +10,9 @@
 /** Utility class for building a strip of triangles for a spline. */
 struct WIDGETSPLINESYSTEM_API FSplineBuilder
 {
-	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext);
+	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale = 1.0);
+	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale, double StrokeScale);
+	static float GetStrokeRadius(float Width) { return 0.5f * FMath::Max(0.0f, Width) + UE_SQRT_2 + 1.0f; }
 
 	void BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateSplinePoint SegmentEnd, const bool bIsLinear);
 	void Finish(const bool bCloseLoop);

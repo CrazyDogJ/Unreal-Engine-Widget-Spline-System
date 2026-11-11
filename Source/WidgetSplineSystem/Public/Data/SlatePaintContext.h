@@ -2,6 +2,14 @@
 
 #pragma once
 
+#include "Layout/Geometry.h"
+#include "Data/SlateSplineFit.h"
+#include "Math/InterpCurve.h"
+#include "Rendering/RenderingCommon.h"
+
+class FSlateWindowElementList;
+struct FSlateBrush;
+
 struct WIDGETSPLINESYSTEM_API FSlatePaintContext
 {
 	FSlatePaintContext() = delete;
@@ -27,4 +35,9 @@ struct WIDGETSPLINESYSTEM_API FSlatePaintContext
 	const FColor TintColor;
 	FPaintGeometry PaintGeometry;
 	int32 LayerId;
+
+	/** Current path for SSpline's per-spline paint callbacks. Valid for the duration of the callback. */
+	const FSlateBrush* Brush = nullptr;
+	const FInterpCurveVector2D* Position = nullptr;
+	FSlateSplineFit Fit;
 };

@@ -20,7 +20,7 @@ public class WidgetSplineSystemEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"Slate", "SlateCore", "UnrealEd"
+				"Slate", "SlateCore", "UnrealEd", "PropertyEditor"
 			});
 		
 		DynamicallyLoadedModuleNames.AddRange(

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "SlateSplinePoint.h"
+#include "Styling/SlateBrush.h"
 #include "SlateSpline.generated.h"
 
 USTRUCT(BlueprintType)
