@@ -52,6 +52,7 @@ struct WIDGETSPLINESYSTEM_API FSlateSplineCurves
 	static FSplineCurves ToWorldSplineCurves(const FSplineCurves& LocalCurves, const FTransform& ComponentToWorld, int32 InReparamStepsPerSegment = 10);
 
 	static FInterpCurveVector2D MakePositionCurve(const FSlateSpline& Spline, bool bOverrideLoopKey = false, float LoopKey = 0.0f);
+	static FBox2D GetPositionBounds(const FInterpCurveVector2D& InPosition);
 	/** Bounds in source coordinates, including curve extrema, the closing segment and stroke footprint. */
 	static FBox2D GetPaintBounds(const FInterpCurveVector2D& InPosition, const FSlateBrush& Brush);
 	static float GetStrokeRadius(const FSlateBrush& Brush);

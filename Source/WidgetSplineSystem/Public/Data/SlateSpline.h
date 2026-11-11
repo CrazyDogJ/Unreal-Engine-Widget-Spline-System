@@ -28,6 +28,7 @@ struct WIDGETSPLINESYSTEM_API FSlateSpline
 		FSlateSplinePoint(FVector2D(200.0f, 200.0f), FVector2D(200.0f, 0.0f))
 	};
 
+	/** ImageSize.X is the local stroke width. ImageSize.Y is the number of texture repeats per 100 local units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Spline Widget")
 	FSlateBrush Brush = FSlateBrush();
 };

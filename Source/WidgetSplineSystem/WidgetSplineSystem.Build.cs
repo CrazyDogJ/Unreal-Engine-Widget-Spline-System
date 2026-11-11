@@ -39,6 +39,7 @@ public class WidgetSplineSystem : ModuleRules
 			new string[]
 			{
 				"Slate",
+				"InputCore",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

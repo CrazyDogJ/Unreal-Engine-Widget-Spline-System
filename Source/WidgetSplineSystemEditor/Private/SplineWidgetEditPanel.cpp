@@ -49,8 +49,9 @@ int32 SSplineWidgetEditPanel::OnPaint(const FPaintArgs& Args, const FGeometry& A
 	FSlatePaintContext PaintContext(OutDrawElements, AllottedGeometry, LayerId + 1,
 		ShouldBeEnabled(bParentEnabled) ? ESlateDrawEffect::None : ESlateDrawEffect::DisabledEffect,
 		SplineRef.Brush.TintColor.GetColor(InWidgetStyle).ToFColorSRGB());
+	PaintContext.Brush = &SplineRef.Brush;
 
-	if (SplineRef.Points.Num() > 1)
+	if (SplineRef.Points.Num() > 1 && SplineRef.Brush.GetImageSize().X > 0.0f)
 	{
 		if (IsValid(SplineRef.Brush.GetResourceObject()))
 		{
@@ -263,7 +264,7 @@ void SSplineWidgetEditPanel::PaintSplineSimple(const FSlatePaintContext& InPaint
 				SegmentStartDirection,
 				TransformInfo.InputToLocal(SegmentEnd.Location),
 				SegmentEndDirection,
-				SplineRef.Brush.GetImageSize().X,
+				SplineRef.Brush.GetImageSize().X * InPaintContext.AllotedGeometry.GetAccumulatedLayoutTransform().GetScale(),
 				InPaintContext.DrawEffect,
 				InPaintContext.TintColor);
 	};
@@ -314,7 +315,8 @@ void SSplineWidgetEditPanel::PaintSplineBrush(const FSlatePaintContext& InPaintC
 	
 	
 	const FSlateResourceHandle& RenderResourceHandle = FSlateApplication::Get().GetRenderer()->GetResourceHandle(SplineRef.Brush);
-	FSlateDrawElement::MakeCustomVerts(InPaintContext.OutDrawElements, InPaintContext.LayerId, RenderResourceHandle, SplineBuilder.GetVertexArray(), SplineBuilder.GetIndexArray(), nullptr, 0, 0, InPaintContext.DrawEffect);
+	FSlateDrawElement::MakeCustomVerts(InPaintContext.OutDrawElements, InPaintContext.LayerId, RenderResourceHandle,
+		SplineBuilder.GetVertexArray(), SplineBuilder.GetIndexArray(), nullptr, 0, 0, InPaintContext.DrawEffect, ESlateBatchDrawFlag::TileV);
 }
 
 void SSplineWidgetEditPanel::PaintSplinePoints(const FSlatePaintContext& InPaintContext) const

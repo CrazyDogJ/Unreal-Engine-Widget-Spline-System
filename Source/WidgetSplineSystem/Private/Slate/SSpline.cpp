@@ -2,6 +2,7 @@
 
 #include "Slate/SSpline.h"
 #include "Framework/Application/SlateApplication.h"
+#include "InputCoreTypes.h"
 #include "Rendering/DrawElements.h"
 #include "Rendering/SlateRenderer.h"
 #include "Slate/SplineBuilder.h"
@@ -10,9 +11,8 @@ namespace
 {
 // Both painters use widget-local positions and Hermite tangents per unit segment.
 template <typename VisitorType>
-void VisitSplineSegments(const FSlatePaintContext& Context, VisitorType&& Visit)
+void VisitSplineSegments(const FInterpCurveVector2D& Curve, const FSlateSplineFit& Fit, VisitorType&& Visit)
 {
-	const FInterpCurveVector2D& Curve = *Context.Position;
 	const auto& Points = Curve.Points;
 	const int32 Count = Curve.bIsLooped ? Points.Num() : Points.Num() - 1;
 	for (int32 Index = 0; Index < Count; ++Index)
@@ -20,17 +20,52 @@ void VisitSplineSegments(const FSlatePaintContext& Context, VisitorType&& Visit)
 		const bool bClosing = Index + 1 == Points.Num();
 		const auto& Start = Points[Index];
 		const auto& End = Points[bClosing ? 0 : Index + 1];
-		const double TangentScale = Context.Fit.Scale * (bClosing ? Curve.LoopKeyOffset : End.InVal - Start.InVal);
-		Visit(FSlateSplinePoint(Context.Fit.TransformPosition(Start.OutVal), Start.LeaveTangent * TangentScale),
-			FSlateSplinePoint(Context.Fit.TransformPosition(End.OutVal), End.ArriveTangent * TangentScale), Start.InterpMode);
+		const double TangentScale = Fit.Scale * (bClosing ? Curve.LoopKeyOffset : End.InVal - Start.InVal);
+		Visit(FSlateSplinePoint(Fit.TransformPosition(Start.OutVal), Start.LeaveTangent * TangentScale),
+			FSlateSplinePoint(Fit.TransformPosition(End.OutVal), End.ArriveTangent * TangentScale), Start.InterpMode);
 	}
+}
+
+bool HitsStroke(const FInterpCurveVector2D& Curve, const FSlateSplineFit& Fit, FVector2D Pointer, double Radius)
+{
+	bool bHit = false;
+	VisitSplineSegments(Curve, Fit, [&](const FSlateSplinePoint& Start, const FSlateSplinePoint& End, EInterpCurveMode Mode)
+	{
+		if (bHit || Mode == CIM_Constant)
+		{
+			return;
+		}
+		FBox2D SegmentBounds(Start.Location, Start.Location);
+		SegmentBounds += End.Location;
+		if (Mode != CIM_Linear)
+		{
+			SegmentBounds += Start.Location + Start.Direction / 3.0;
+			SegmentBounds += End.Location - End.Direction / 3.0;
+		}
+		if (!SegmentBounds.ExpandBy(Radius).IsInsideOrOn(Pointer))
+		{
+			return;
+		}
+
+		FVector2D Previous = Start.Location;
+		FSplineBuilder::VisitSegmentPoints(Start, End, Mode == CIM_Linear, [&](const FVector2D& Point)
+		{
+			if (!bHit && Point != Previous)
+			{
+				const FVector2D Closest = FMath::ClosestPointOnSegment2D(Pointer, Previous, Point);
+				bHit = FVector2D::DistSquared(Closest, Pointer) <= FMath::Square(Radius);
+			}
+			Previous = Point;
+		});
+	});
+	return bHit;
 }
 }
 
 void SSpline::Construct(const FArguments& InArguments)
 {
-	PreferredSize = InArguments._PreferredSize;
-	MappingScale = FSlateSplineFit::ClampMappingScale(InArguments._MappingScale);
+	OnSplineClicked = InArguments._OnSplineClicked;
+	IsSplineClickEnabled = InArguments._IsSplineClickEnabled;
 	ImportedSplineBrush = InArguments._ImportedSplineBrush;
 	SetSplines(InArguments._Splines);
 }
@@ -52,6 +87,7 @@ void SSpline::SetSplineCurves(const FSlateSplineCurves& InCurves)
 
 void SSpline::SetSplineCurves(TConstArrayView<FSlateSplineCurves> InCurves)
 {
+	PressedSplineIndex = INDEX_NONE;
 	auto& Positions = ImportedPositions.Emplace();
 	Positions.Reserve(InCurves.Num());
 	for (const FSlateSplineCurves& Curves : InCurves)
@@ -74,6 +110,7 @@ bool SSpline::SetSplineFromProvider(const UObject* Provider, int32 ReparamStepsP
 
 void SSpline::ClearSplineCurves()
 {
+	PressedSplineIndex = INDEX_NONE;
 	ImportedPositions.Reset();
 	RefreshBounds();
 }
@@ -84,25 +121,6 @@ void SSpline::SetImportedSplineBrush(const FSlateBrush& InBrush)
 	if (ImportedPositions.IsSet())
 	{
 		RefreshBounds();
-	}
-}
-
-void SSpline::SetPreferredSize(FVector2D InSize)
-{
-	if (PreferredSize != InSize)
-	{
-		PreferredSize = InSize;
-		Invalidate(EInvalidateWidgetReason::Layout);
-	}
-}
-
-void SSpline::SetMappingScale(float InScale)
-{
-	const float NewScale = FSlateSplineFit::ClampMappingScale(InScale);
-	if (MappingScale != NewScale)
-	{
-		MappingScale = NewScale;
-		Invalidate(EInvalidateWidgetReason::Paint);
 	}
 }
 
@@ -124,27 +142,88 @@ void SSpline::VisitSplines(TFunctionRef<void(const FInterpCurveVector2D&, const 
 
 void SSpline::RefreshBounds()
 {
-	Bounds = FBox2D(ForceInit);
+	Bounds = FSlateSplineBounds();
 	VisitSplines([this](const FInterpCurveVector2D& Position, const FSlateBrush& Brush)
 	{
-		Bounds += FSlateSplineCurves::GetPaintBounds(Position, Brush);
+		Bounds.Add(Position, Brush);
 	});
 	Invalidate(EInvalidateWidgetReason::Layout);
 }
 
 FVector2D SSpline::ComputeDesiredSize(float LayoutScaleMultiplier) const
 {
-	return FSlateSplineFit::GetDesiredSize(Bounds, PreferredSize, GetDisplayStrokeRadius());
-}
-
-double SSpline::GetDisplayStrokeRadius() const
-{
-	return ImportedPositions.IsSet() ? FSlateSplineCurves::GetStrokeRadius(ImportedSplineBrush) : 0.0;
+	return Bounds.GetDesiredSize();
 }
 
 FSlateSplineFit SSpline::GetSplineFit(const FVector2D& AllottedSize) const
 {
-	return FSlateSplineFit(Bounds, AllottedSize, MappingScale, GetDisplayStrokeRadius());
+	return FSlateSplineFit(Bounds, AllottedSize);
+}
+
+int32 SSpline::FindSplineAt(const FGeometry& Geometry, const FVector2D& ScreenPosition) const
+{
+	const FSlateSplineFit Fit = GetSplineFit(Geometry.GetLocalSize());
+	if (Fit.Scale <= 0.0 || !Geometry.IsUnderLocation(ScreenPosition))
+	{
+		return INDEX_NONE;
+	}
+	const FVector2D Pointer = Geometry.AbsoluteToLocal(ScreenPosition);
+	const bool bImported = ImportedPositions.IsSet();
+	const int32 Count = bImported ? ImportedPositions->Num() : DesignerSplines.Num();
+	for (int32 Index = Count - 1; Index >= 0; --Index)
+	{
+		const FSlateBrush& Brush = bImported ? ImportedSplineBrush : DesignerSplines[Index].Brush;
+		const double Width = Brush.GetImageSize().X;
+		if (Width > 0.0)
+		{
+			const FInterpCurveVector2D& Path = bImported ? (*ImportedPositions)[Index] : DesignerSplines[Index].Position;
+			if (HitsStroke(Path, Fit, Pointer, Width * 0.5))
+			{
+				return Index;
+			}
+		}
+	}
+	return INDEX_NONE;
+}
+
+FReply SSpline::OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton && !HasMouseCapture()
+		&& OnSplineClicked.IsBound() && IsSplineClickEnabled.Get())
+	{
+		PressedSplineIndex = FindSplineAt(MyGeometry, MouseEvent.GetScreenSpacePosition());
+		if (PressedSplineIndex != INDEX_NONE)
+		{
+			return FReply::Handled().CaptureMouse(SharedThis(this));
+		}
+	}
+	return FReply::Unhandled();
+}
+
+FReply SSpline::OnMouseButtonDoubleClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	return OnMouseButtonDown(MyGeometry, MouseEvent);
+}
+
+FReply SSpline::OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent)
+{
+	if (MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton || !HasMouseCaptureByUser(MouseEvent.GetUserIndex(), MouseEvent.GetPointerIndex()))
+	{
+		return FReply::Unhandled();
+	}
+	const int32 Index = PressedSplineIndex;
+	PressedSplineIndex = INDEX_NONE;
+	if (Index != INDEX_NONE && IsSplineClickEnabled.Get() && FindSplineAt(MyGeometry, MouseEvent.GetScreenSpacePosition()) == Index)
+	{
+		OnSplineClicked.ExecuteIfBound(Index);
+	}
+	return FReply::Handled().ReleaseMouseCapture();
+}
+
+void SSpline::OnMouseCaptureLost(const FCaptureLostEvent& CaptureLostEvent)
+{
+	PressedSplineIndex = INDEX_NONE;
+	SLeafWidget::OnMouseCaptureLost(CaptureLostEvent);
 }
 
 int32 SSpline::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -159,7 +238,7 @@ int32 SSpline::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry
 	OutDrawElements.PushClip(FSlateClippingZone(AllottedGeometry));
 	VisitSplines([&](const FInterpCurveVector2D& Position, const FSlateBrush& Brush)
 	{
-		if (Position.Points.Num() < (Position.bIsLooped ? 1 : 2))
+		if (Brush.GetImageSize().X <= 0.0f || Position.Points.Num() < (Position.bIsLooped ? 1 : 2))
 		{
 			return;
 		}
@@ -184,8 +263,8 @@ void SSpline::PaintSplineSimple(const FSlatePaintContext& Context) const
 {
 	// MakeSpline takes its stroke width in screen pixels.
 	const float Thickness = FMath::Max(0.0f, static_cast<float>(Context.Brush->GetImageSize().X))
-		* Context.Fit.StrokeScale * Context.AllotedGeometry.GetAccumulatedLayoutTransform().GetScale();
-	VisitSplineSegments(Context, [&](const FSlateSplinePoint& Start, const FSlateSplinePoint& End, EInterpCurveMode Mode)
+		* Context.AllotedGeometry.GetAccumulatedLayoutTransform().GetScale();
+	VisitSplineSegments(*Context.Position, Context.Fit, [&](const FSlateSplinePoint& Start, const FSlateSplinePoint& End, EInterpCurveMode Mode)
 	{
 		if (Mode != CIM_Constant)
 		{
@@ -207,13 +286,13 @@ void SSpline::PaintSplineBrush(const FSlatePaintContext& Context) const
 		{
 			Strip->Finish(bCloseLoop);
 			FSlateDrawElement::MakeCustomVerts(Context.OutDrawElements, Context.LayerId, Resource,
-				Strip->GetVertexArray(), Strip->GetIndexArray(), nullptr, 0, 0, Context.DrawEffect);
+				Strip->GetVertexArray(), Strip->GetIndexArray(), nullptr, 0, 0, Context.DrawEffect, ESlateBatchDrawFlag::TileV);
 			Strip.Reset();
 		}
 	};
 
 	bool bCloseStrip = Context.Position->bIsLooped;
-	VisitSplineSegments(Context, [&](const FSlateSplinePoint& Start, const FSlateSplinePoint& End, EInterpCurveMode Mode)
+	VisitSplineSegments(*Context.Position, Context.Fit, [&](const FSlateSplinePoint& Start, const FSlateSplinePoint& End, EInterpCurveMode Mode)
 	{
 		if (Mode == CIM_Constant)
 		{
@@ -223,7 +302,7 @@ void SSpline::PaintSplineBrush(const FSlatePaintContext& Context) const
 		}
 		if (!Strip.IsSet())
 		{
-			Strip.Emplace(Context.Brush->GetImageSize(), Context, Context.Fit.Scale, Context.Fit.StrokeScale);
+			Strip.Emplace(Context.Brush->GetImageSize(), Context);
 		}
 		Strip->BuildBezierGeometry(Start, End, Mode == CIM_Linear);
 	});

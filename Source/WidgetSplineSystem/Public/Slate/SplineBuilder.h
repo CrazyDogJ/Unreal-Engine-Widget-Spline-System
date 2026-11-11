@@ -10,9 +10,11 @@
 /** Utility class for building a strip of triangles for a spline. */
 struct WIDGETSPLINESYSTEM_API FSplineBuilder
 {
-	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale = 1.0);
-	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale, double StrokeScale);
-	static float GetStrokeRadius(float Width) { return 0.5f * FMath::Max(0.0f, Width) + UE_SQRT_2 + 1.0f; }
+	FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext);
+
+	/** Visit the tessellated points after Start, ending at End. All coordinates are widget-local. */
+	static void VisitSegmentPoints(const FSlateSplinePoint& Start, const FSlateSplinePoint& End, bool bLinear,
+		TFunctionRef<void(const FVector2D&)> Visit);
 
 	void BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateSplinePoint SegmentEnd, const bool bIsLinear);
 	void Finish(const bool bCloseLoop);
@@ -29,6 +31,7 @@ struct WIDGETSPLINESYSTEM_API FSplineBuilder
 	
 private:
 	void AppendPoint(const FVector2D NewPoint);
+	void AddVertex(const FSlateRenderTransform& Transform, FVector2f Position, float U);
 
 
 	/**
@@ -76,7 +79,8 @@ private:
 	*/
 	static void deCasteljauSplit(const FVector2D P0, const FVector2D P1, const FVector2D P2, const FVector2D P3, FVector2D OutCurveParams[7]);
 
-	void Subdivide(const FVector2D P0, const FVector2D P1, const FVector2D P2, const FVector2D P3, float MaxBiasTimesTwo = 2.0f);
+	static void Subdivide(const FVector2D P0, const FVector2D P1, const FVector2D P2, const FVector2D P3,
+		TFunctionRef<void(const FVector2D&)> Visit);
 	
 private:
 	const FSlateRenderTransform& RenderTransform;

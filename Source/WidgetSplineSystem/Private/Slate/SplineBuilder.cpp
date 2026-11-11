@@ -1,19 +1,25 @@
 // Copyright to Kat Code Labs, SRL. All Rights Reserved.
 
 #include "Slate/SplineBuilder.h"
+#include "Materials/MaterialInterface.h"
 
-FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale)
-	: FSplineBuilder(InSize, PaintContext, SplineScale, SplineScale)
-{
-}
-
-FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext, double SplineScale, double StrokeScale)
+FSplineBuilder::FSplineBuilder(const FVector2D& InSize, const FSlatePaintContext& PaintContext)
 	: RenderTransform(PaintContext.GetRenderTransform())
 	, SingleColor(PaintContext.TintColor)
-	, TextureCoord2(InSize.X, 1.0f)
-	, CoordScaleV(SplineScale > 0.0 ? InSize.Y * 0.01 / SplineScale : 0.0)
+	// Materials can read the original width in UV1. The stock texture shader multiplies UV0 by UV1.
+	, TextureCoord2(PaintContext.Brush && Cast<UMaterialInterface>(PaintContext.Brush->GetResourceObject()) ? InSize.X : 1.0f, 1.0f)
+	, CoordScaleV(InSize.Y * 0.01)
 {
-	HalfLineThickness = GetStrokeRadius(TextureCoord2.X) * StrokeScale;
+	HalfLineThickness = 0.5f * FMath::Max(0.0f, static_cast<float>(InSize.X));
+}
+
+void FSplineBuilder::AddVertex(const FSlateRenderTransform& Transform, FVector2f Position, float U)
+{
+	const FVector4f UVs(U, CurrentCoordV, TextureCoord2.X, TextureCoord2.Y);
+	FSlateVertex Vertex = FSlateVertex::Make<ESlateVertexRounding::Disabled>(Transform, Position, UVs,
+		FVector2f(U, CurrentCoordV), SingleColor);
+	Vertex.PixelSize[0] = Vertex.PixelSize[1] = 0;
+	Vertices.Add(Vertex);
 }
 
 void FSplineBuilder::BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateSplinePoint SegmentEnd, const bool bIsLinear)
@@ -23,18 +29,24 @@ void FSplineBuilder::BuildBezierGeometry(FSlateSplinePoint SegmentStart, FSlateS
 		AppendPoint(SegmentStart.Location);
 	}
 
-	if (bIsLinear)
+	VisitSegmentPoints(SegmentStart, SegmentEnd, bIsLinear, [this](const FVector2D& Point) { AppendPoint(Point); });
+}
+
+void FSplineBuilder::VisitSegmentPoints(const FSlateSplinePoint& Start, const FSlateSplinePoint& End, bool bLinear,
+	TFunctionRef<void(const FVector2D&)> Visit)
+{
+	if (bLinear)
 	{
-		SegmentStart.Direction = FVector2D::ZeroVector;
-		SegmentEnd.Direction = FVector2D::ZeroVector;
+		Visit(End.Location);
+		return;
 	}
 
 	// This is the same value that Unreal inside FSlateSplinePayload::SetHermiteSpline
 	constexpr float BezierControlPointScale = 3.0f;
-	const FVector2D P1 = SegmentStart.Location + SegmentStart.Direction / BezierControlPointScale;
-	const FVector2D P2 = SegmentEnd.Location - SegmentEnd.Direction / BezierControlPointScale;
+	const FVector2D P1 = Start.Location + Start.Direction / BezierControlPointScale;
+	const FVector2D P2 = End.Location - End.Direction / BezierControlPointScale;
 		
-	Subdivide(SegmentStart.Location, P1, P2, SegmentEnd.Location, 1.0f);
+	Subdivide(Start.Location, P1, P2, End.Location, Visit);
 }
 
 void FSplineBuilder::Finish(const bool bCloseLoop)
@@ -63,13 +75,13 @@ void FSplineBuilder::Finish(const bool bCloseLoop)
 		if (bCloseLoop)
 		{
 			const FSlateRenderTransform& TempRenderTransform = FSlateRenderTransform(1.0f);
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(TempRenderTransform, Vertices[0].Position, FVector2f(1.0f, CurrentCoordV), TextureCoord2, SingleColor));
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(TempRenderTransform, Vertices[1].Position, FVector2f(0.0f, CurrentCoordV), TextureCoord2, SingleColor));
+			AddVertex(TempRenderTransform, Vertices[0].Position, 1.0f);
+			AddVertex(TempRenderTransform, Vertices[1].Position, 0.0f);
 		}
 		else
 		{
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[0] + LastUp), FVector2f(1.0f, CurrentCoordV), TextureCoord2, SingleColor));
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[0] - LastUp), FVector2f(0.0f, CurrentCoordV), TextureCoord2, SingleColor));	
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[0] + LastUp), 1.0f);
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[0] - LastUp), 0.0f);
 		}
 
 		const int32 NumVerts = Vertices.Num();
@@ -106,8 +118,8 @@ void FSplineBuilder::AppendPoint(const FVector2D NewPoint)
 			// Once we have two points, we have a normal, so we can generate the first bit of geometry.
 			const FVector2D LastUp = LastNormal*HalfLineThickness;
 
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[1] + LastUp), FVector2f(1.0f, CurrentCoordV), TextureCoord2, SingleColor));
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[1] - LastUp), FVector2f(0.0f, CurrentCoordV), TextureCoord2, SingleColor));
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[1] + LastUp), 1.0f);
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[1] - LastUp), 0.0f);
 		}
 
 		if (NumPointsAdded >= 2)
@@ -117,8 +129,8 @@ void FSplineBuilder::AppendPoint(const FVector2D NewPoint)
 			CurrentLength += FVector2D::Distance(LastPointAdded[1], LastPointAdded[0]);
 			CurrentCoordV = CurrentLength * CoordScaleV;
 
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[0] + AveragedUp), FVector2f(1.0f, CurrentCoordV), TextureCoord2, SingleColor));
-			Vertices.Add(FSlateVertex::Make<ESlateVertexRounding::Disabled>(RenderTransform, FVector2f(LastPointAdded[0] - AveragedUp), FVector2f(0.0f, CurrentCoordV), TextureCoord2, SingleColor));
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[0] + AveragedUp), 1.0f);
+			AddVertex(RenderTransform, FVector2f(LastPointAdded[0] - AveragedUp), 0.0f);
 
 			const int32 NumVerts = Vertices.Num();
 
@@ -168,20 +180,20 @@ void FSplineBuilder::deCasteljauSplit(const FVector2D P0, const FVector2D P1, co
 }
 
 void FSplineBuilder::Subdivide(const FVector2D P0, const FVector2D P1, const FVector2D P2, const FVector2D P3,
-	float MaxBiasTimesTwo)
+	TFunctionRef<void(const FVector2D&)> Visit)
 {
 	const float Curviness = ComputeCurviness(P0, P1, P2, P3);
-	if (Curviness > MaxBiasTimesTwo)
+	if (Curviness > 1.0f)
 	{
 		// Split the Bezier into two curves.
 		FVector2D TwoCurves[7];
 		deCasteljauSplit(P0, P1, P2, P3, TwoCurves);
 		// Subdivide left, then right
-		Subdivide(TwoCurves[0], TwoCurves[1], TwoCurves[2], TwoCurves[3], MaxBiasTimesTwo);
-		Subdivide(TwoCurves[3], TwoCurves[4], TwoCurves[5], TwoCurves[6], MaxBiasTimesTwo);
+		Subdivide(TwoCurves[0], TwoCurves[1], TwoCurves[2], TwoCurves[3], Visit);
+		Subdivide(TwoCurves[3], TwoCurves[4], TwoCurves[5], TwoCurves[6], Visit);
 	}
 	else
 	{
-		AppendPoint(P3);
+		Visit(P3);
 	}
 }

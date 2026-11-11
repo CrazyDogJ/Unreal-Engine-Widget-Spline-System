@@ -7,6 +7,8 @@
 #include "Slate/SSpline.h"
 #include "SplineWidget.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWidgetSplineClicked, int32, SplineIndex);
+
 UCLASS()
 class WIDGETSPLINESYSTEM_API USplineWidget : public UWidget
 {
@@ -22,29 +24,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintSetter=SetSplines, Category="Spline Widget")
 	TArray<FSlateSpline> Splines = { FSlateSpline() };
 
-	/** Shared brush for imported paths. ImageSize.X is the line width in Slate units at MappingScale 1. */
+	/** Shared brush for imported paths. X is the local stroke width. Y is texture repeats per 100 local units. */
 	UPROPERTY(EditAnywhere, BlueprintSetter=SetImportedSplineBrush, Category="Spline Widget")
 	FSlateBrush ImportedSplineBrush;
 
-	/** Requested layout size in Slate units. Zero axes are automatic. Two positive axes define a box to fit. */
-	UPROPERTY(EditAnywhere, BlueprintSetter=SetPreferredSize, Category="Spline Widget|Layout", meta=(ClampMin="0"))
-	FVector2D PreferredSize = FVector2D::ZeroVector;
-
-	/** Zoom about the center of the fitted paths. 1 fits the set, 2 doubles its displayed size. */
-	UPROPERTY(EditAnywhere, BlueprintSetter=SetMappingScale, Category="Spline Widget|Layout", meta=(ClampMin="0", UIMin="0.1", UIMax="4"))
-	float MappingScale = 1.0f;
+	/** Left-click on a stroke. SplineIndex is the zero-based index in the active designer or imported array. */
+	UPROPERTY(BlueprintAssignable, Category="Spline Widget|Interaction")
+	FOnWidgetSplineClicked OnSplineClicked;
 
 	UFUNCTION(BlueprintSetter, Category=Spline)
 	void SetSplines(const TArray<FSlateSpline>& InSplines);
 
 	UFUNCTION(BlueprintSetter, Category=Spline)
 	void SetImportedSplineBrush(const FSlateBrush& InBrush);
-
-	UFUNCTION(BlueprintSetter, Category="Spline Widget|Layout")
-	void SetPreferredSize(FVector2D InSize);
-
-	UFUNCTION(BlueprintSetter, Category="Spline Widget|Layout")
-	void SetMappingScale(float InScale);
 
 	/** Resume using Splines and rebuild geometry, distance tables and layout bounds. */
 	UFUNCTION(BlueprintCallable, Category=Spline)
@@ -80,6 +72,10 @@ protected:
 	TSharedPtr<SSpline> SlateSpline;
 
 private:
+	bool HasSplineClickListeners() const;
+	void HandleSplineClicked(int32 SplineIndex);
+	FSlateSplineBounds CalculateSplineBounds() const;
+
 	UPROPERTY(Transient)
 	TArray<FSlateSplineCurves> SplineCurves;
 

@@ -50,7 +50,9 @@ void USplineWidget::Serialize(FArchive& Ar)
 
 TSharedRef<SWidget> USplineWidget::RebuildWidget()
 {
-	SlateSpline = SNew(SSpline);
+	SlateSpline = SNew(SSpline)
+		.IsSplineClickEnabled_UObject(this, &USplineWidget::HasSplineClickListeners)
+		.OnSplineClicked_UObject(this, &USplineWidget::HandleSplineClicked);
 	return SlateSpline.ToSharedRef();
 }
 
@@ -65,8 +67,6 @@ void USplineWidget::SynchronizeProperties()
 	Super::SynchronizeProperties();
 	if (SlateSpline.IsValid())
 	{
-		SlateSpline->SetPreferredSize(PreferredSize);
-		SlateSpline->SetMappingScale(MappingScale);
 		SlateSpline->SetImportedSplineBrush(ImportedSplineBrush);
 	}
 	if (!bUsingExternalSplines)
@@ -94,22 +94,14 @@ void USplineWidget::SetImportedSplineBrush(const FSlateBrush& InBrush)
 	}
 }
 
-void USplineWidget::SetPreferredSize(FVector2D InSize)
+bool USplineWidget::HasSplineClickListeners() const
 {
-	PreferredSize = FVector2D(FMath::Max(0.0, InSize.X), FMath::Max(0.0, InSize.Y));
-	if (SlateSpline.IsValid())
-	{
-		SlateSpline->SetPreferredSize(PreferredSize);
-	}
+	return OnSplineClicked.IsBound();
 }
 
-void USplineWidget::SetMappingScale(float InScale)
+void USplineWidget::HandleSplineClicked(int32 SplineIndex)
 {
-	MappingScale = FSlateSplineFit::ClampMappingScale(InScale);
-	if (SlateSpline.IsValid())
-	{
-		SlateSpline->SetMappingScale(MappingScale);
-	}
+	OnSplineClicked.Broadcast(SplineIndex);
 }
 
 void USplineWidget::UpdateSpline()
@@ -170,23 +162,24 @@ const FSlateSplineCurves* USplineWidget::FindSplineCurves(int32 SplineIndex) con
 
 FBox2D USplineWidget::GetSplineBounds() const
 {
-	if (SlateSpline.IsValid())
-	{
-		return SlateSpline->GetSplineBounds();
-	}
-	FBox2D Bounds(ForceInit);
+	return SlateSpline.IsValid() ? SlateSpline->GetSplineBounds() : CalculateSplineBounds().Painted;
+}
+
+FSlateSplineBounds USplineWidget::CalculateSplineBounds() const
+{
+	FSlateSplineBounds Bounds;
 	if (bUsingExternalSplines)
 	{
 		for (const FSlateSplineCurves& Curve : SplineCurves)
 		{
-			Bounds += FSlateSplineCurves::GetPaintBounds(Curve.Position, ImportedSplineBrush);
+			Bounds.Add(Curve.Position, ImportedSplineBrush);
 		}
 	}
 	else
 	{
 		for (const FSlateSpline& Spline : Splines)
 		{
-			Bounds += FSlateSplineCurves::GetPaintBounds(FSlateSplineCurves::MakePositionCurve(Spline), Spline.Brush);
+			Bounds.Add(FSlateSplineCurves::MakePositionCurve(Spline), Spline.Brush);
 		}
 	}
 	return Bounds;
@@ -198,8 +191,6 @@ FSlateSplineFit USplineWidget::GetSplineFit() const
 	{
 		return SlateSpline->GetSplineFit(SlateSpline->GetCachedGeometry().GetLocalSize());
 	}
-	const FBox2D Bounds = GetSplineBounds();
-	const double DisplayRadius = bUsingExternalSplines ? FSlateSplineCurves::GetStrokeRadius(ImportedSplineBrush) : 0.0;
-	const FVector2D Size = FSlateSplineFit::GetDesiredSize(Bounds, PreferredSize, DisplayRadius);
-	return FSlateSplineFit(Bounds, Size, MappingScale, DisplayRadius);
+	const FSlateSplineBounds Bounds = CalculateSplineBounds();
+	return FSlateSplineFit(Bounds, Bounds.GetDesiredSize());
 }

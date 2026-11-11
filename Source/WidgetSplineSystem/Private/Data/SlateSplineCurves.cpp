@@ -3,7 +3,6 @@
 #include "Data/SlateSplineCurves.h"
 #include "Components/SplineComponent.h"
 #include "WidgetSplineCurvesProvider.h"
-#include "Slate/SplineBuilder.h"
 
 namespace
 {
@@ -251,7 +250,7 @@ FInterpCurveVector2D FSlateSplineCurves::MakePositionCurve(const FSlateSpline& S
 	return Result;
 }
 
-FBox2D FSlateSplineCurves::GetPaintBounds(const FInterpCurveVector2D& InPosition, const FSlateBrush& Brush)
+FBox2D FSlateSplineCurves::GetPositionBounds(const FInterpCurveVector2D& InPosition)
 {
 	const auto& Points = InPosition.Points;
 	if (Points.IsEmpty())
@@ -269,13 +268,19 @@ FBox2D FSlateSplineCurves::GetPaintBounds(const FInterpCurveVector2D& InPosition
 		End.InVal = Points.Last().InVal + InPosition.LoopKeyOffset;
 		CurveVector2DFindIntervalBounds(Points.Last(), End, Bounds.Min, Bounds.Max);
 	}
-	return Bounds.ExpandBy(GetStrokeRadius(Brush));
+	return Bounds;
+}
+
+FBox2D FSlateSplineCurves::GetPaintBounds(const FInterpCurveVector2D& InPosition, const FSlateBrush& Brush)
+{
+	const FBox2D Bounds = GetPositionBounds(InPosition);
+	return Bounds.bIsValid ? Bounds.ExpandBy(GetStrokeRadius(Brush)) : Bounds;
 }
 
 float FSlateSplineCurves::GetStrokeRadius(const FSlateBrush& Brush)
 {
 	const float Width = FMath::Max(0.0f, static_cast<float>(Brush.GetImageSize().X));
-	return IsValid(Brush.GetResourceObject()) ? FSplineBuilder::GetStrokeRadius(Width) : 0.5f * Width + 1.0f;
+	return 0.5f * Width + (Width > 0.0f && !IsValid(Brush.GetResourceObject()) ? 1.0f : 0.0f);
 }
 
 float FSlateSplineCurves::GetSegmentKeySpan(int32 Index) const
