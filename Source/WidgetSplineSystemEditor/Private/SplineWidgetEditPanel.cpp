@@ -324,7 +324,7 @@ void SSplineWidgetEditPanel::PaintSplinePoints(const FSlatePaintContext& InPaint
 		FSlateDrawElement::MakeBox(
 			InPaintContext.OutDrawElements,
 			InPaintContext.LayerId,
-			InPaintContext.AllotedGeometry.ToPaintGeometry(KeyIconLocation, PointSize),
+			InPaintContext.AllotedGeometry.ToPaintGeometry(PointSize, FSlateLayoutTransform(1.0, TransformPoint(1.0, UE::Slate::CastToVector2f(KeyIconLocation)))),
 			KeyBrush,
 			InPaintContext.DrawEffect,
 			PointColor[IsSelected]
@@ -373,7 +373,7 @@ void SSplineWidgetEditPanel::PaintSplineTangent(const FSlatePaintContext& InPain
 	FSlateDrawElement::MakeBox(
 		InPaintContext.OutDrawElements,
 		InPaintContext.LayerId,
-		InPaintContext.AllotedGeometry.ToPaintGeometry(ArriveTangentIconLocation, PointSize),
+		InPaintContext.AllotedGeometry.ToPaintGeometry(PointSize, FSlateLayoutTransform(1.0, TransformPoint(1.0, UE::Slate::CastToVector2f(ArriveTangentIconLocation)))),
 		TangentBrushSelected,
 		InPaintContext.DrawEffect,
 		PointColor[true]
@@ -388,7 +388,7 @@ void SSplineWidgetEditPanel::PaintSplineTangent(const FSlatePaintContext& InPain
 	FSlateDrawElement::MakeRotatedBox(
 		InPaintContext.OutDrawElements,
 		InPaintContext.LayerId,
-		InPaintContext.AllotedGeometry.ToPaintGeometry(ArrowDrawLocation, ArrowImage->ImageSize * ZoomFactor),
+		InPaintContext.AllotedGeometry.ToPaintGeometry(ArrowImage->ImageSize * ZoomFactor, FSlateLayoutTransform(1.0, TransformPoint(1.0, UE::Slate::CastToVector2f(ArrowDrawLocation)))),
 		ArrowImage,
 		InPaintContext.DrawEffect,
 		AngleInRadians,
